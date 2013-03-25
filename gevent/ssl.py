@@ -160,6 +160,20 @@ class SSLSocket(socket):
         else:
             return self._sslobj.cipher()
 
+    # ARCODE:
+    def compression(self):
+        if not self._sslobj:
+            return None
+        else:
+            return self._sslobj.compression()
+
+    # ARCODE:
+    def expansion(self):
+        if not self._sslobj:
+            return None
+        else:
+            return self._sslobj.expansion()
+
     def send(self, data, flags=0, timeout=timeout_default):
         if timeout is timeout_default:
             timeout = self.timeout
