@@ -548,6 +548,86 @@ static int init_by_environment(ares_channel channel)
   return ARES_SUCCESS;
 }
 
+#ifdef __APPLE__
+/* get TARGET_IPHONE_SIMULATOR and TARGET_OS_IPHONE: */
+#include "TargetConditionals.h"
+/*
+ * get_DNS_iOS()
+ *
+ * Under sandboxed iOS (i.e., not running under the simulator), access to
+ * /etc/resolv.conf is prohibited. So we need to use an alternate method to find
+ * our DNS servers. Fortunately, BSD provides an API for doing so; see
+ *
+ * http://stackoverflow.com/questions/10999612/
+ * https://developer.apple.com/library/mac/#documentation/Darwin/Reference/ManPages/man3/res_init.3.html
+ * --------
+ *
+ * Returns 0 and nullifies *outptr upon inability to return DNSes string.
+ *
+ * Otherwise, returns 1 and returns a pointer in *outptr to a newly allocated
+ * memory area holding a null-terminated string with a comma-separated list of
+ * DNS IP addresses.
+ *
+ */
+#include <ifaddrs.h>
+#include <resolv.h>
+#include <dns.h>
+static int get_DNS_iOS(char **outptr)
+{
+    res_state resolver_state = malloc(sizeof(struct __res_state));
+    int result;
+    int pass, i, len = 0;
+
+    *outptr = NULL;
+    if (!resolver_state) {
+	printf("get_DNS_iOS: failed (1)\n");
+	return 0;
+    }
+
+    // Get resolver state
+    result = res_ninit(resolver_state);
+
+    // If we couldn't, fail.
+    if (result != 0) {
+	free(resolver_state);
+	printf("get_DNS_iOS: failed (2)\n");
+	return 0;
+    }
+
+    //
+    // Run two passes:
+    //
+    // Pass 0: determine length of DNS server IP address list
+    // Pass 1: actually write IPs to list
+    //
+    for (pass = 0; pass < 2; pass++) {
+	if (pass == 1) {
+	    *outptr = len ? malloc(len + 1) : NULL;
+	    if (!*outptr)
+		break;
+	    else
+		**outptr = 0;
+	}
+	for (i = 0; i < resolver_state->nscount; i++) {
+	    const char *ip = inet_ntoa(resolver_state->nsaddr_list[i].sin_addr);
+	    if (ip) {
+		if (pass == 0)
+		    len += strlen(ip) + (i ? 1 : 0);
+		else {
+		    if (i)
+			strcat(*outptr, ",");
+		    strcat(*outptr, ip);
+		}
+	    }
+	}
+    }
+
+    free(resolver_state);
+    printf("get_DNS_iOS: %s\n", *outptr);
+    return *outptr ? 1 : 0;
+}
+#endif /* __APPLE__ */
+
 #ifdef WIN32
 /*
  * get_REG_SZ()
@@ -1081,12 +1161,16 @@ static int init_by_resolv_conf(ares_channel channel)
   struct server_state *servers = NULL;
   struct apattern *sortlist = NULL;
 
-#ifdef WIN32
+#if defined(WIN32) || defined(__APPLE__)
 
   if (channel->nservers > -1)  /* don't override ARES_OPT_SERVER */
      return ARES_SUCCESS;
 
+#ifdef WIN32
   if (get_DNS_Windows(&line))
+#else
+  if (get_DNS_iOS(&line))
+#endif
   {
     status = config_nameserver(&servers, &nservers, line);
     free(line);

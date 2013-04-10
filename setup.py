@@ -192,6 +192,12 @@ if CARES_EMBED:
         ARES.define_macros += [('HAVE_CONFIG_H', '')]
         if sys.platform != 'darwin':
             ARES.libraries += ['rt']
+        else:
+            #
+            # Under OS X we get the DNS server IPs using libresolv; this is actually the only way to
+            # do it under iOS when sandboxed.
+            #
+            ARES.libraries += ['resolv']
     ARES.define_macros += [('CARES_EMBED', '1')]
 else:
     ARES.libraries.append('cares')
